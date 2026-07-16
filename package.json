@@ -1,0 +1,67 @@
+{
+  "name": "uacs-vs-solution-explorer",
+  "displayName": "UACS VS Solution Explorer",
+  "description": "A lightweight Visual Studio-style explorer for .sln, .vcxproj and .vcxproj.filters.",
+  "version": "0.1.0",
+  "publisher": "uacs-local",
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.85.0" },
+  "main": "./extension.js",
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished", "workspaceContains:**/*.sln"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "uacs-vs-solution-explorer",
+          "title": "VS解决方案",
+          "icon": "$(symbol-folder)"
+        }
+      ]
+    },
+    "views": {
+      "uacs-vs-solution-explorer": [
+        {
+          "id": "uacs-solution-tree",
+          "name": "解决方案资源管理器",
+          "contextualTitle": "UACS VS Solution Explorer"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "uacsSolutionExplorer.openSolution", "title": "UACS: 打开解决方案" },
+      { "command": "uacsSolutionExplorer.refresh", "title": "UACS: 刷新解决方案树" },
+      { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件" }
+    ],
+    "configuration": {
+      "title": "UACS VS Solution Explorer",
+      "properties": {
+        "uacsSolutionExplorer.solutionPath": {
+          "type": "string",
+          "default": "Source/New_Server/UACS_GG5.sln",
+          "description": "相对于工作区根目录的 .sln 路径。"
+        },
+        "uacsSolutionExplorer.autoFind": {
+          "type": "boolean",
+          "default": true,
+          "description": "找不到指定解决方案时，自动搜索工作区中的第一个 .sln。"
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "uacsSolutionExplorer.refresh",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation"
+        },
+        {
+          "command": "uacsSolutionExplorer.selectSolution",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": { "test": "node test/model.test.js" }
+}

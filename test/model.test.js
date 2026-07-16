@@ -1,0 +1,15 @@
+const assert = require('assert');
+const path = require('path');
+const { parseSolution, parseProject, buildTree } = require('../src/model');
+const root = path.resolve(__dirname, '../../../');
+const sln = path.join(root, 'Source/New_Server/UACS_GG5.sln');
+const solution = parseSolution(sln);
+assert(solution.projects.length >= 30, `expected projects, got ${solution.projects.length}`);
+assert(solution.projects.some(p => p.name === 'APP_Crane' && !p.isSolutionFolder));
+assert(solution.projects.some(p => p.name === '机组' && p.isSolutionFolder));
+assert(solution.projects.some(p => p.name === 'APL4' && p.parentGuid));
+const crane = parseProject(path.join(root, 'Source/New_Server/APP_Crane/APP_Crane.vcxproj'));
+assert(crane.items.some(i => i.include === 'APP_Crane.cpp'));
+assert(crane.filters.get('APP_Crane.cpp') === '源文件');
+assert(buildTree(solution).some(p => p.name === 'APP_Crane'));
+console.log(`ok: ${solution.projects.length} solution entries, ${crane.items.length} APP_Crane files, ${crane.filters.size} filter mappings`);
