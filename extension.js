@@ -70,8 +70,13 @@ class SolutionProvider {
       const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: new vscode.ThemeIcon('folder'), children: [] };
       node.projectInfo = projectInfo;
       node.filterPath = parentPath ? `${parentPath}\\${label}` : label;
+      node.resource = path.resolve(project.dir, filterFolderRelative(node.filterPath));
       const files = entry.items.map(item => {
-        const relative = item.include; return new SolutionNode(path.basename(relative), 'file', path.normalize(path.join(project.dir, relative)));
+        const relative = item.include;
+        const fileNode = new SolutionNode(path.basename(relative), 'file', path.normalize(path.join(project.dir, relative)));
+        fileNode.projectInfo = projectInfo;
+        fileNode.filterPath = node.filterPath;
+        return fileNode;
       });
       // Keep folders before files at every level, matching Visual Studio.
       node.children.push(...make(entry.children, node.filterPath));
@@ -286,8 +291,277 @@ async function importCodeFiles(provider, node) {
   vscode.window.showInformationMessage(`已导入 ${added} 个文件到 ${projectInfo.name}。`);
 }
 
+let fileClipboard = null;
+
+function nodePath(node) {
+  return node && node.resource ? path.normalize(node.resource) : null;
+}
+
+function nodeDirectory(node) {
+  const target = nodePath(node);
+  if (!target) return null;
+  try { return fs.statSync(target).isDirectory() ? target : path.dirname(target); }
+  catch (_) { return node.kind === 'file' ? path.dirname(target) : target; }
+}
+
+function isVirtualFilterRoot(node) {
+  return node && node.kind === 'filter' && !filterFolderRelative(node.filterPath);
+}
+
+function projectRelative(projectFile, file) {
+  return path.relative(path.dirname(projectFile), file).replace(/\\/g, '/');
+}
+
+function isPathUnder(file, root) {
+  const absoluteFile = path.resolve(file);
+  const absoluteRoot = path.resolve(root);
+  return absoluteFile === absoluteRoot || absoluteFile.startsWith(`${absoluteRoot}${path.sep}`);
+}
+
+function addFileToProject(projectFile, file, filterPath) {
+  const relative = projectRelative(projectFile, file);
+  const type = itemTypeForFile(file);
+  if (!appendProjectItem(projectFile, type, relative)) return false;
+  appendFilterItem(projectFile, type, relative, filterPath || defaultFilterForType(type));
+  return true;
+}
+
+function removeProjectReferences(projectFile, targetRelative) {
+  if (!fs.existsSync(projectFile)) return;
+  const normalizedTarget = targetRelative.replace(/\\/g, '/').replace(/^\.\//, '');
+  const removeItems = text => text.replace(/\s*<(ClCompile|ClInclude|ResourceCompile|None|Content|CustomBuild|Natvis|Midl|Image|JavaScriptCompile)\b[^>]*\bInclude=["']([^"']+)["'][^>]*(?:\/>|>[\s\S]*?<\/\1>)/gi, (whole, type, include) => {
+    const normalized = include.replace(/\\/g, '/');
+    return normalized === normalizedTarget || normalized.startsWith(`${normalizedTarget}/`) ? '' : whole;
+  });
+  const replaceFile = (file, transform) => {
+    if (!fs.existsSync(file)) return;
+    const before = readText(file);
+    const after = transform(before);
+    if (before !== after) fs.writeFileSync(file, after, 'utf8');
+  };
+  replaceFile(projectFile, removeItems);
+  replaceFile(`${projectFile}.filters`, removeItems);
+}
+
+function updateProjectReferences(projectFile, oldRelative, newRelative) {
+  const oldPath = oldRelative.replace(/\\/g, '/').replace(/^\.\//, '');
+  const newPath = newRelative.replace(/\\/g, '/').replace(/^\.\//, '');
+  const replacePath = value => {
+    const normalized = value.replace(/\\/g, '/');
+    if (normalized !== oldPath && !normalized.startsWith(`${oldPath}/`)) return value;
+    return `${newPath}${normalized.slice(oldPath.length)}`;
+  };
+  const update = text => text.replace(/(\bInclude=["'])([^"']+)(["'])/gi, (whole, prefix, include, suffix) => {
+    const updated = replacePath(include);
+    return updated === include ? whole : `${prefix}${updated}${suffix}`;
+  }).replace(/(<Filter>)([^<]+)(<\/Filter>)/gi, (whole, prefix, filter, suffix) => {
+    const updated = replacePath(filter);
+    return updated === filter ? whole : `${prefix}${updated}${suffix}`;
+  });
+  const replaceFile = file => {
+    if (!fs.existsSync(file)) return;
+    const before = readText(file);
+    const after = update(before);
+    if (before !== after) fs.writeFileSync(file, after, 'utf8');
+  };
+  replaceFile(projectFile);
+  replaceFile(`${projectFile}.filters`);
+}
+
+function ensureFilterEntry(projectFile, filterPath) {
+  if (!filterPath) return;
+  const filtersFile = `${projectFile}.filters`;
+  const escaped = escapeXml(filterPath.replace(/\\/g, '/'));
+  const newline = fs.existsSync(filtersFile) && readText(filtersFile).includes('\r\n') ? '\r\n' : '\n';
+  if (!fs.existsSync(filtersFile)) {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>${newline}<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">${newline}`
+      + `  <ItemGroup>${newline}    <Filter Include="${escaped}">${newline}      <UniqueIdentifier>{${Date.now().toString(16).padStart(8, '0')}-0000-4000-8000-000000000000}</UniqueIdentifier>${newline}    </Filter>${newline}  </ItemGroup>${newline}</Project>${newline}`;
+    fs.writeFileSync(filtersFile, xml, 'utf8');
+    return;
+  }
+  const text = readText(filtersFile);
+  const exists = new RegExp(`<Filter\\b[^>]*\\bInclude=["']${escaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i').test(text);
+  if (exists) return;
+  const close = text.lastIndexOf('</Project>');
+  if (close < 0) return;
+  const group = `  <ItemGroup>${newline}    <Filter Include="${escaped}">${newline}      <UniqueIdentifier>{${Date.now().toString(16).padStart(8, '0')}-0000-4000-8000-000000000000}</UniqueIdentifier>${newline}    </Filter>${newline}  </ItemGroup>${newline}`;
+  fs.writeFileSync(filtersFile, text.slice(0, close) + group + text.slice(close), 'utf8');
+}
+
+function projectNodeContext(provider, node) {
+  const projectInfo = node && node.projectInfo;
+  if (!projectInfo || !provider.solutionPath) return null;
+  const projectFile = projectFilePath(provider.solutionPath, projectInfo);
+  return { projectInfo, projectFile, folder: projectTargetFolder(projectFile, node.filterPath || '') };
+}
+
+async function newFile(provider, node) {
+  const directory = nodeDirectory(node);
+  if (!directory) return;
+  const name = await vscode.window.showInputBox({
+    prompt: '输入新文件名',
+    value: 'NewFile.cpp',
+    validateInput(value) {
+      const clean = String(value || '').trim();
+      if (!clean || clean.includes('/') || clean.includes('\\') || clean === '.' || clean === '..') return '请输入文件名，不要包含路径';
+      if (fs.existsSync(path.join(directory, clean))) return '文件已存在';
+      return null;
+    }
+  });
+  if (!name) return;
+  const target = path.join(directory, name.trim());
+  fs.writeFileSync(target, '', 'utf8');
+  const context = projectNodeContext(provider, node);
+  if (context && isPathUnder(target, path.dirname(context.projectFile))) {
+    addFileToProject(context.projectFile, target, node.filterPath || defaultFilterForType(itemTypeForFile(target)));
+  }
+  await reloadProvider(provider);
+  await vscode.window.showTextDocument(vscode.Uri.file(target));
+}
+
+async function newFolder(provider, node) {
+  const directory = nodeDirectory(node);
+  if (!directory) return;
+  const name = await vscode.window.showInputBox({
+    prompt: '输入新文件夹名称',
+    validateInput(value) {
+      const clean = String(value || '').trim();
+      if (!clean || clean.includes('/') || clean.includes('\\') || clean === '.' || clean === '..') return '请输入文件夹名称，不要包含路径';
+      if (fs.existsSync(path.join(directory, clean))) return '文件夹已存在';
+      return null;
+    }
+  });
+  if (!name) return;
+  const target = path.join(directory, name.trim());
+  fs.mkdirSync(target, { recursive: true });
+  const context = projectNodeContext(provider, node);
+  if (context && node.kind === 'filter') ensureFilterEntry(context.projectFile, path.posix.join(node.filterPath || '', name.trim()));
+  await reloadProvider(provider);
+}
+
+async function revealInFinder(node) {
+  const target = nodePath(node);
+  if (target) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+}
+
+async function openInTerminal(node) {
+  const directory = nodeDirectory(node);
+  if (!directory) return;
+  const terminal = vscode.window.createTerminal({ name: `UACS: ${path.basename(directory)}`, cwd: directory });
+  terminal.show();
+}
+
+async function findInFolder(node) {
+  const directory = nodeDirectory(node);
+  if (!directory) return;
+  await vscode.commands.executeCommand('workbench.action.findInFolder', vscode.Uri.file(directory));
+}
+
+async function copyPath(provider, node, relative) {
+  const target = nodePath(node);
+  if (!target) return;
+  let value = target;
+  if (relative) {
+    const root = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    if (root) value = path.relative(root.uri.fsPath, target).replace(/\\/g, '/');
+  }
+  await vscode.env.clipboard.writeText(value);
+  vscode.window.setStatusBarMessage(relative ? `已复制相对路径: ${value}` : `已复制路径: ${value}`, 2500);
+}
+
+async function renameNode(provider, node) {
+  if (!node || !['file', 'filter'].includes(node.kind)) return;
+  if (isVirtualFilterRoot(node)) return vscode.window.showInformationMessage('“源文件/头文件”等分类是虚拟筛选器，不能重命名。');
+  const source = nodePath(node);
+  if (!source || !fs.existsSync(source)) return vscode.window.showErrorMessage('该节点没有对应的本地文件夹或文件。');
+  const nextName = await vscode.window.showInputBox({ prompt: '输入新名称', value: path.basename(source), validateInput: value => value && !value.includes('/') && !value.includes('\\') ? null : '名称不能包含路径' });
+  if (!nextName || nextName === path.basename(source)) return;
+  const destination = path.join(path.dirname(source), nextName.trim());
+  if (fs.existsSync(destination)) return vscode.window.showErrorMessage('目标名称已存在。');
+  fs.renameSync(source, destination);
+  const context = projectNodeContext(provider, node);
+  if (context) updateProjectReferences(context.projectFile, projectRelative(context.projectFile, source), projectRelative(context.projectFile, destination));
+  await reloadProvider(provider);
+}
+
+async function deleteNode(provider, node) {
+  if (!node || !['file', 'filter'].includes(node.kind)) return;
+  if (isVirtualFilterRoot(node)) return vscode.window.showInformationMessage('“源文件/头文件”等分类是虚拟筛选器，不能删除。');
+  const target = nodePath(node);
+  if (!target || !fs.existsSync(target)) return;
+  const answer = await vscode.window.showWarningMessage(`确定删除“${path.basename(target)}”吗？`, { modal: true }, '删除');
+  if (answer !== '删除') return;
+  const context = projectNodeContext(provider, node);
+  if (context) removeProjectReferences(context.projectFile, projectRelative(context.projectFile, target));
+  fs.rmSync(target, { recursive: true, force: true });
+  await reloadProvider(provider);
+}
+
+async function cutNode(node) {
+  if (isVirtualFilterRoot(node)) return;
+  const target = nodePath(node);
+  if (target) {
+    fileClipboard = { source: target, mode: 'cut' };
+    await vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', true);
+  }
+}
+
+async function copyNode(node) {
+  if (isVirtualFilterRoot(node)) return;
+  const target = nodePath(node);
+  if (target) {
+    fileClipboard = { source: target, mode: 'copy' };
+    await vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', true);
+  }
+}
+
+async function pasteNode(provider, node) {
+  if (!fileClipboard || !fs.existsSync(fileClipboard.source)) return vscode.window.showInformationMessage('剪贴板中没有可粘贴的文件或文件夹。');
+  const directory = nodeDirectory(node);
+  if (!directory) return;
+  const destination = uniqueDestination(directory, path.basename(fileClipboard.source));
+  const sourceContext = node && node.projectInfo ? projectNodeContext(provider, node) : null;
+  if (fileClipboard.mode === 'cut') fs.renameSync(fileClipboard.source, destination);
+  else fs.cpSync(fileClipboard.source, destination, { recursive: true });
+  const context = projectNodeContext(provider, node);
+  if (context) {
+    const stat = fs.statSync(destination);
+    if (stat.isDirectory()) {
+      const visit = dir => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const current = path.join(dir, entry.name);
+          if (entry.isDirectory()) visit(current);
+          else addFileToProject(context.projectFile, current, node.filterPath || defaultFilterForType(itemTypeForFile(current)));
+        }
+      };
+      visit(destination);
+    } else addFileToProject(context.projectFile, destination, node.filterPath || defaultFilterForType(itemTypeForFile(destination)));
+    if (fileClipboard.mode === 'cut' && sourceContext && sourceContext.projectFile === context.projectFile) {
+      removeProjectReferences(context.projectFile, projectRelative(context.projectFile, fileClipboard.source));
+    }
+  }
+  fileClipboard = null;
+  await vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', false);
+  await reloadProvider(provider);
+}
+
+async function addDirectoryToChat(node, newSession) {
+  const directory = nodeDirectory(node);
+  if (!directory) return;
+  const candidates = newSession ? ['workbench.action.chat.newSession', 'cursor.newChat'] : ['workbench.action.chat.open', 'cursor.openChat'];
+  for (const command of candidates) {
+    try {
+      await vscode.commands.executeCommand(command, { resource: vscode.Uri.file(directory), query: `@${directory}` });
+      return;
+    } catch (_) { /* Cursor versions expose different chat command ids. */ }
+  }
+  await vscode.env.clipboard.writeText(directory);
+  vscode.window.showInformationMessage('当前版本未提供 Cursor Chat 命令，目录路径已复制到剪贴板。');
+}
+
 function activate(context) {
   const provider = new SolutionProvider();
+  vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', false);
   context.subscriptions.push(vscode.window.registerTreeDataProvider('uacs-solution-tree', provider));
   const workspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   const config = () => vscode.workspace.getConfiguration('uacsSolutionExplorer');
@@ -312,6 +586,24 @@ function activate(context) {
     try { await importCodeFiles(provider, node); }
     catch (error) { vscode.window.showErrorMessage(`导入代码文件失败: ${error.message}`); }
   }));
+  const safeCommand = (name, handler) => context.subscriptions.push(vscode.commands.registerCommand(name, async node => {
+    try { await handler(node); }
+    catch (error) { vscode.window.showErrorMessage(`${name} 执行失败: ${error.message}`); }
+  }));
+  safeCommand('uacsSolutionExplorer.newFile', node => newFile(provider, node));
+  safeCommand('uacsSolutionExplorer.newFolder', node => newFolder(provider, node));
+  safeCommand('uacsSolutionExplorer.revealInFinder', revealInFinder);
+  safeCommand('uacsSolutionExplorer.openInTerminal', openInTerminal);
+  safeCommand('uacsSolutionExplorer.findInFolder', findInFolder);
+  safeCommand('uacsSolutionExplorer.copyPath', node => copyPath(provider, node, false));
+  safeCommand('uacsSolutionExplorer.copyRelativePath', node => copyPath(provider, node, true));
+  safeCommand('uacsSolutionExplorer.rename', node => renameNode(provider, node));
+  safeCommand('uacsSolutionExplorer.delete', node => deleteNode(provider, node));
+  safeCommand('uacsSolutionExplorer.cut', cutNode);
+  safeCommand('uacsSolutionExplorer.copy', copyNode);
+  safeCommand('uacsSolutionExplorer.paste', node => pasteNode(provider, node));
+  safeCommand('uacsSolutionExplorer.addDirectoryToChat', node => addDirectoryToChat(node, false));
+  safeCommand('uacsSolutionExplorer.addDirectoryToNewChat', node => addDirectoryToChat(node, true));
   if (workspace) {
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.{sln,vcxproj,filters}');
     watcher.onDidChange(loadConfigured, null, context.subscriptions); watcher.onDidCreate(loadConfigured, null, context.subscriptions); watcher.onDidDelete(loadConfigured, null, context.subscriptions); context.subscriptions.push(watcher);
