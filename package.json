@@ -32,6 +32,7 @@
       { "command": "uacsSolutionExplorer.openSolution", "title": "UACS: 打开解决方案" },
       { "command": "uacsSolutionExplorer.refresh", "title": "UACS: 刷新解决方案树" },
       { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件" },
+      { "command": "uacsSolutionExplorer.search", "title": "搜索解决方案文件...", "icon": "$(search)" },
       { "command": "uacsSolutionExplorer.createFile", "title": "UACS: 新建代码文件" },
       { "command": "uacsSolutionExplorer.addExistingFile", "title": "导入现有代码文件..." },
       { "command": "uacsSolutionExplorer.newFile", "title": "新建文件...", "icon": "$(new-file)" },
@@ -85,6 +86,11 @@
           "command": "uacsSolutionExplorer.addExistingFile",
           "when": "view == uacs-solution-tree",
           "group": "navigation@3"
+        },
+        {
+          "command": "uacsSolutionExplorer.search",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [

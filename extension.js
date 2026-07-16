@@ -291,6 +291,37 @@ async function importCodeFiles(provider, node) {
   vscode.window.showInformationMessage(`已导入 ${added} 个文件到 ${projectInfo.name}。`);
 }
 
+function solutionFileChoices(provider) {
+  if (!provider.solution) return [];
+  const choices = [];
+  for (const projectInfo of provider.solution.projects.filter(project => !project.isSolutionFolder)) {
+    const projectFile = projectFilePath(provider.solutionPath, projectInfo);
+    try {
+      const project = parseProject(projectFile);
+      for (const item of project.items) {
+        const file = path.normalize(path.join(project.dir, item.include));
+        choices.push({
+          label: path.basename(file),
+          description: `${projectInfo.name} · ${path.relative(project.dir, file).replace(/\\/g, '/')}`,
+          detail: file,
+          file
+        });
+      }
+    } catch (_) { /* Ignore an individual project that cannot be parsed. */ }
+  }
+  return choices;
+}
+
+async function searchSolutionFiles(provider) {
+  const query = await vscode.window.showInputBox({ prompt: '搜索解决方案中的代码文件', placeHolder: '输入文件名或路径片段' });
+  if (!query) return;
+  const needle = query.toLowerCase();
+  const matches = solutionFileChoices(provider).filter(choice => `${choice.label} ${choice.description} ${choice.detail}`.toLowerCase().includes(needle));
+  if (!matches.length) return vscode.window.showInformationMessage(`没有找到包含“${query}”的文件。`);
+  const picked = await vscode.window.showQuickPick(matches.slice(0, 200), { placeHolder: `找到 ${matches.length} 个文件` });
+  if (picked) await vscode.window.showTextDocument(vscode.Uri.file(picked.file));
+}
+
 let fileClipboard = null;
 
 function nodePath(node) {
@@ -562,7 +593,8 @@ async function addDirectoryToChat(node, newSession) {
 function activate(context) {
   const provider = new SolutionProvider();
   vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', false);
-  context.subscriptions.push(vscode.window.registerTreeDataProvider('uacs-solution-tree', provider));
+  const treeView = vscode.window.createTreeView('uacs-solution-tree', { treeDataProvider: provider, showCollapseAll: true });
+  context.subscriptions.push(treeView);
   const workspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   const config = () => vscode.workspace.getConfiguration('uacsSolutionExplorer');
   const loadConfigured = async () => {
@@ -604,6 +636,7 @@ function activate(context) {
   safeCommand('uacsSolutionExplorer.paste', node => pasteNode(provider, node));
   safeCommand('uacsSolutionExplorer.addDirectoryToChat', node => addDirectoryToChat(node, false));
   safeCommand('uacsSolutionExplorer.addDirectoryToNewChat', node => addDirectoryToChat(node, true));
+  safeCommand('uacsSolutionExplorer.search', () => searchSolutionFiles(provider));
   if (workspace) {
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.{sln,vcxproj,filters}');
     watcher.onDidChange(loadConfigured, null, context.subscriptions); watcher.onDidCreate(loadConfigured, null, context.subscriptions); watcher.onDidDelete(loadConfigured, null, context.subscriptions); context.subscriptions.push(watcher);
