@@ -90,47 +90,47 @@
       "view/item/context": [
         {
           "command": "uacsSolutionExplorer.addExistingFile",
-          "when": "view == uacs-solution-tree && viewItem == project",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project)",
           "group": "1_create@3"
         },
         {
           "command": "uacsSolutionExplorer.addExistingFile",
-          "when": "view == uacs-solution-tree && viewItem == filter",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == filter)",
           "group": "1_create@3"
         },
         {
           "command": "uacsSolutionExplorer.newFile",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter)",
           "group": "1_create@1"
         },
         {
           "command": "uacsSolutionExplorer.newFolder",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter)",
           "group": "1_create@2"
         },
         {
           "command": "uacsSolutionExplorer.revealInFinder",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter || viewItem == file)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter || viewItem == file)",
           "group": "2_open@1"
         },
         {
           "command": "uacsSolutionExplorer.openInTerminal",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter || viewItem == file)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter || viewItem == file)",
           "group": "2_open@2"
         },
         {
           "command": "uacsSolutionExplorer.addDirectoryToChat",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter)",
           "group": "3_chat@1"
         },
         {
           "command": "uacsSolutionExplorer.addDirectoryToNewChat",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter)",
           "group": "3_chat@2"
         },
         {
           "command": "uacsSolutionExplorer.findInFolder",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter)",
           "group": "4_search@1"
         },
         {
@@ -145,18 +145,18 @@
         },
         {
           "command": "uacsSolutionExplorer.paste",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter || viewItem == file)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter || viewItem == file)",
           "enablement": "uacsSolutionExplorer.canPaste",
           "group": "5_edit@3"
         },
         {
           "command": "uacsSolutionExplorer.copyPath",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter || viewItem == file)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter || viewItem == file)",
           "group": "6_path@1"
         },
         {
           "command": "uacsSolutionExplorer.copyRelativePath",
-          "when": "view == uacs-solution-tree && (viewItem == project || viewItem == filter || viewItem == file)",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project || viewItem == filter || viewItem == file)",
           "group": "6_path@2"
         },
         {

@@ -42,7 +42,7 @@ class SolutionProvider {
   }
   projectNode(project) { const projectFile = path.join(path.dirname(this.solution.file), project.relativePath); const node = new SolutionNode(project.name, 'project', path.dirname(projectFile), vscode.TreeItemCollapsibleState.Collapsed); node.projectInfo = project; return node; }
   solutionFolderChildren(project) { const children = buildTree({ projects: this.solution.projects.filter(p => p.parentGuid === project.guid), projectByGuid: this.solution.projectByGuid }).sort((a, b) => Number(b.isSolutionFolder) - Number(a.isSolutionFolder) || a.name.localeCompare(b.name, 'zh-CN')); return children.map(p => p.isSolutionFolder ? this.solutionFolderNode(p) : this.projectNode(p)); }
-  solutionFolderNode(project) { const n = new SolutionNode(project.name, 'solutionFolder', null, vscode.TreeItemCollapsibleState.Collapsed); n.project = project; return n; }
+  solutionFolderNode(project) { const n = new SolutionNode(project.name, 'solutionFolder', path.dirname(this.solution.file), vscode.TreeItemCollapsibleState.Collapsed); n.project = project; return n; }
   projectChildren(projectInfo) {
     const file = path.join(path.dirname(this.solution.file), projectInfo.relativePath);
     const project = parseProject(file); const groups = new Map();
