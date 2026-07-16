@@ -31,7 +31,9 @@
     "commands": [
       { "command": "uacsSolutionExplorer.openSolution", "title": "UACS: 打开解决方案" },
       { "command": "uacsSolutionExplorer.refresh", "title": "UACS: 刷新解决方案树" },
-      { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件" }
+      { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件" },
+      { "command": "uacsSolutionExplorer.createFile", "title": "UACS: 新建代码文件" },
+      { "command": "uacsSolutionExplorer.addExistingFile", "title": "UACS: 导入现有代码文件" }
     ],
     "configuration": {
       "title": "UACS VS Solution Explorer",
@@ -59,6 +61,28 @@
           "command": "uacsSolutionExplorer.selectSolution",
           "when": "view == uacs-solution-tree",
           "group": "navigation"
+        },
+        {
+          "command": "uacsSolutionExplorer.createFile",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "uacsSolutionExplorer.addExistingFile",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "uacsSolutionExplorer.createFile",
+          "when": "view == uacs-solution-tree && viewItem == project",
+          "group": "uacs@1"
+        },
+        {
+          "command": "uacsSolutionExplorer.addExistingFile",
+          "when": "view == uacs-solution-tree && viewItem == project",
+          "group": "uacs@2"
         }
       ]
     }
