@@ -24,26 +24,65 @@ class SolutionNode {
 }
 
 class SolutionProvider {
-  constructor() { this._onDidChangeTreeData = new vscode.EventEmitter(); this.onDidChangeTreeData = this._onDidChangeTreeData.event; this.solution = null; this.solutionPath = null; }
+  constructor() {
+    this._onDidChangeTreeData = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this.solution = null;
+    this.solutionPath = null;
+    this.rootNode = null;
+    this.parents = new WeakMap();
+  }
   refresh() { this._onDidChangeTreeData.fire(); }
-  async load(file) { this.solutionPath = file; this.solution = parseSolution(file); this.refresh(); }
+  async load(file) { this.solutionPath = file; this.solution = parseSolution(file); this.rootNode = null; this.parents = new WeakMap(); this.refresh(); }
   getTreeItem(node) { return node; }
   getChildren(node) {
-    if (!node) return this.solution ? [new SolutionNode(this.solution.name, 'solution', this.solution.file, vscode.TreeItemCollapsibleState.Expanded)] : [];
-    if (node.kind === 'solution') return this.solutionChildren();
-    if (node.kind === 'solutionFolder') return this.solutionFolderChildren(node.project);
-    if (node.kind === 'project') return this.projectChildren(node.projectInfo);
+    if (!node) {
+      if (!this.solution) return [];
+      if (!this.rootNode) this.rootNode = new SolutionNode(this.solution.name, 'solution', this.solution.file, vscode.TreeItemCollapsibleState.Expanded);
+      return [this.rootNode];
+    }
+    if (node.kind === 'solution') return this.solutionChildren(node);
+    if (node.kind === 'solutionFolder') return this.solutionFolderChildren(node.project, node);
+    if (node.kind === 'project') return this.projectChildren(node.projectInfo, node);
     if (node.kind === 'filter' || node.kind === 'group') return node.children || [];
     return [];
   }
-  solutionChildren() {
-    const roots = buildTree(this.solution).sort((a, b) => Number(b.isSolutionFolder) - Number(a.isSolutionFolder) || a.name.localeCompare(b.name, 'zh-CN'));
-    return roots.map(p => p.isSolutionFolder ? this.solutionFolderNode(p) : this.projectNode(p));
+  getParent(node) { return this.parents.get(node); }
+  findFileNode(file) {
+    if (!this.rootNode && this.solution) this.getChildren(null);
+    if (!this.rootNode) return null;
+    const target = path.normalize(file);
+    const walk = parent => {
+      for (const child of this.getChildren(parent)) {
+        if (child.kind === 'file' && child.resource && path.normalize(child.resource) === target) return child;
+        if (child.collapsibleState !== vscode.TreeItemCollapsibleState.None) {
+          const found = walk(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return walk(this.rootNode);
   }
-  projectNode(project) { const projectFile = path.join(path.dirname(this.solution.file), project.relativePath); const node = new SolutionNode(project.name, 'project', path.dirname(projectFile), vscode.TreeItemCollapsibleState.Collapsed); node.projectInfo = project; return node; }
-  solutionFolderChildren(project) { const children = buildTree({ projects: this.solution.projects.filter(p => p.parentGuid === project.guid), projectByGuid: this.solution.projectByGuid }).sort((a, b) => Number(b.isSolutionFolder) - Number(a.isSolutionFolder) || a.name.localeCompare(b.name, 'zh-CN')); return children.map(p => p.isSolutionFolder ? this.solutionFolderNode(p) : this.projectNode(p)); }
+  solutionChildren(parentNode) {
+    const roots = buildTree(this.solution).sort((a, b) => Number(b.isSolutionFolder) - Number(a.isSolutionFolder) || a.name.localeCompare(b.name, 'zh-CN'));
+    return roots.map(p => {
+      const child = p.isSolutionFolder ? this.solutionFolderNode(p) : this.projectNode(p);
+      this.parents.set(child, parentNode);
+      return child;
+    });
+  }
+  projectNode(project) {
+    const projectFile = path.join(path.dirname(this.solution.file), project.relativePath);
+    const node = new SolutionNode(project.name, 'project', path.dirname(projectFile), vscode.TreeItemCollapsibleState.Collapsed);
+    node.projectInfo = project;
+    const startup = vscode.workspace.getConfiguration('uacsSolutionExplorer').get('startupProject', '');
+    node.description = startup === project.name ? '★ 启动项目' : 'C++ project';
+    return node;
+  }
+  solutionFolderChildren(project, parentNode) { const children = buildTree({ projects: this.solution.projects.filter(p => p.parentGuid === project.guid), projectByGuid: this.solution.projectByGuid }).sort((a, b) => Number(b.isSolutionFolder) - Number(a.isSolutionFolder) || a.name.localeCompare(b.name, 'zh-CN')); return children.map(p => { const child = p.isSolutionFolder ? this.solutionFolderNode(p) : this.projectNode(p); this.parents.set(child, parentNode); return child; }); }
   solutionFolderNode(project) { const n = new SolutionNode(project.name, 'solutionFolder', path.dirname(this.solution.file), vscode.TreeItemCollapsibleState.Collapsed); n.project = project; return n; }
-  projectChildren(projectInfo) {
+  projectChildren(projectInfo, parentNode) {
     const file = path.join(path.dirname(this.solution.file), projectInfo.relativePath);
     const project = parseProject(file); const groups = new Map();
     for (const item of project.items) {
@@ -66,25 +105,78 @@ class SolutionProvider {
       })() : null;
       if (parent) parent.items.push(item);
     }
-    const make = (entries, parentPath = '') => [...entries.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN')).map(([label, entry]) => {
+    const make = (entries, parentPath = '', parentFilter) => [...entries.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN')).map(([label, entry]) => {
       const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: new vscode.ThemeIcon('folder'), children: [] };
+      this.parents.set(node, parentFilter || parentNode);
       node.projectInfo = projectInfo;
       node.filterPath = parentPath ? `${parentPath}\\${label}` : label;
       node.resource = path.resolve(project.dir, filterFolderRelative(node.filterPath));
       const files = entry.items.map(item => {
         const relative = item.include;
         const fileNode = new SolutionNode(path.basename(relative), 'file', path.normalize(path.join(project.dir, relative)));
+        this.parents.set(fileNode, node);
         fileNode.projectInfo = projectInfo;
         fileNode.filterPath = node.filterPath;
         return fileNode;
       });
       // Keep folders before files at every level, matching Visual Studio.
-      node.children.push(...make(entry.children, node.filterPath));
+      node.children.push(...make(entry.children, node.filterPath, node));
       node.children.push(...files);
       node.collapsibleState = node.children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
       return node;
     });
-    return make(groups);
+    return make(groups, '', parentNode);
+  }
+}
+
+class DiagnosticsNode {
+  constructor(label, kind, resource, collapsible = vscode.TreeItemCollapsibleState.None) {
+    this.label = label;
+    this.kind = kind;
+    this.resource = resource;
+    this.collapsibleState = collapsible;
+    this.contextValue = `uacs-diagnostic-${kind}`;
+  }
+}
+
+class DiagnosticsProvider {
+  constructor(solutionProvider) {
+    this.solutionProvider = solutionProvider;
+    this._onDidChangeTreeData = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+  }
+  refresh() { this._onDidChangeTreeData.fire(); }
+  getTreeItem(node) { return node; }
+  getChildren(node) {
+    if (node) return node.children || [];
+    const solution = this.solutionProvider.solution;
+    if (!solution) return [];
+    const root = path.dirname(solution.file);
+    const files = [];
+    for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+      if (uri.scheme !== 'file' || !isPathUnder(uri.fsPath, root)) continue;
+      const relevant = diagnostics.filter(diagnostic => diagnostic.severity !== vscode.DiagnosticSeverity.Hint);
+      if (!relevant.length) continue;
+      const fileNode = new DiagnosticsNode(path.basename(uri.fsPath), 'file', uri.fsPath, vscode.TreeItemCollapsibleState.Collapsed);
+      fileNode.description = `${relevant.length} 条`;
+      fileNode.tooltip = uri.fsPath;
+      fileNode.command = { command: 'vscode.open', title: '打开文件', arguments: [uri] };
+      fileNode.children = relevant.sort((a, b) => a.range.start.line - b.range.start.line).map(diagnostic => {
+        const severity = diagnostic.severity === vscode.DiagnosticSeverity.Error ? 'error' : diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 'warning' : 'info';
+        const line = diagnostic.range.start.line + 1;
+        const child = new DiagnosticsNode(`${line}: ${diagnostic.message}`, severity, uri);
+        child.tooltip = diagnostic.message;
+        child.iconPath = new vscode.ThemeIcon(severity === 'error' ? 'error' : severity === 'warning' ? 'warning' : 'info');
+        child.command = {
+          command: 'vscode.open',
+          title: '跳转到诊断位置',
+          arguments: [uri, { selection: new vscode.Range(diagnostic.range.start, diagnostic.range.end) }]
+        };
+        return child;
+      });
+      files.push(fileNode);
+    }
+    return files.sort((a, b) => String(a.label).localeCompare(String(b.label), 'zh-CN'));
   }
 }
 
@@ -320,6 +412,55 @@ async function searchSolutionFiles(provider) {
   if (!matches.length) return vscode.window.showInformationMessage(`没有找到包含“${query}”的文件。`);
   const picked = await vscode.window.showQuickPick(matches.slice(0, 200), { placeHolder: `找到 ${matches.length} 个文件` });
   if (picked) await vscode.window.showTextDocument(vscode.Uri.file(picked.file));
+}
+
+async function revealActiveFile(provider, treeView, notify) {
+  const editor = vscode.window.activeTextEditor;
+  const file = editor && editor.document && editor.document.uri.scheme === 'file' ? editor.document.uri.fsPath : null;
+  if (!file || !provider.solution) return;
+  const node = provider.findFileNode(file);
+  if (!node) {
+    if (notify) vscode.window.showInformationMessage('当前文件不在已加载的解决方案中。');
+    return;
+  }
+  try {
+    await treeView.reveal(node, { select: true, focus: false, expand: true });
+  } catch (error) {
+    if (notify) vscode.window.showErrorMessage(`定位当前文件失败: ${error.message}`);
+  }
+}
+
+function configuredCommand(provider, node, clean) {
+  const setting = clean ? 'cleanCommand' : 'buildCommand';
+  const configured = vscode.workspace.getConfiguration('uacsSolutionExplorer').get(setting, '').trim();
+  if (!configured) return null;
+  const projectInfo = node && node.projectInfo;
+  const projectFile = projectInfo && provider.solutionPath ? projectFilePath(provider.solutionPath, projectInfo) : '';
+  const projectName = projectInfo ? projectInfo.name : vscode.workspace.getConfiguration('uacsSolutionExplorer').get('startupProject', '');
+  return configured
+    .replace(/\$\{solution\}/g, provider.solutionPath || '')
+    .replace(/\$\{project\}/g, projectFile)
+    .replace(/\$\{projectName\}/g, projectName);
+}
+
+async function runConfiguredBuild(provider, node, clean) {
+  const command = configuredCommand(provider, node, clean);
+  if (!command) {
+    const setting = clean ? 'uacsSolutionExplorer.cleanCommand' : 'uacsSolutionExplorer.buildCommand';
+    return vscode.window.showWarningMessage(`请先在设置中配置 ${setting}。可使用 \${solution}、\${project}、\${projectName} 占位符。`);
+  }
+  const workspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  const terminal = vscode.window.createTerminal({ name: clean ? 'UACS 清理' : 'UACS 构建', cwd: workspace ? workspace.uri.fsPath : undefined });
+  terminal.show();
+  terminal.sendText(command, true);
+}
+
+async function setStartupProject(provider) {
+  const picked = await vscode.window.showQuickPick(projectChoices(provider), { placeHolder: '选择启动项目' });
+  if (!picked) return;
+  await vscode.workspace.getConfiguration('uacsSolutionExplorer').update('startupProject', picked.project.name, vscode.ConfigurationTarget.Workspace);
+  provider.refresh();
+  vscode.window.setStatusBarMessage(`启动项目已设置为 ${picked.project.name}`, 3000);
 }
 
 let fileClipboard = null;
@@ -595,20 +736,33 @@ function activate(context) {
   vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', false);
   const treeView = vscode.window.createTreeView('uacs-solution-tree', { treeDataProvider: provider, showCollapseAll: true });
   context.subscriptions.push(treeView);
+  const diagnosticsProvider = new DiagnosticsProvider(provider);
+  const diagnosticsView = vscode.window.createTreeView('uacs-diagnostics-tree', { treeDataProvider: diagnosticsProvider, showCollapseAll: true });
+  context.subscriptions.push(diagnosticsView);
   const workspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   const config = () => vscode.workspace.getConfiguration('uacsSolutionExplorer');
   const loadConfigured = async () => {
     if (!workspace) return vscode.window.showWarningMessage('请先打开 UACS 工作区文件夹。');
     const file = await findSolution(workspace.uri.fsPath, config().get('solutionPath'));
     if (!file) return vscode.window.showErrorMessage('找不到 .sln 文件，请执行“UACS: 选择解决方案文件”。');
-    try { await provider.load(file); vscode.window.setStatusBarMessage(`VS解决方案: ${path.basename(file)}`, 3000); }
+    try {
+      await provider.load(file);
+      diagnosticsProvider.refresh();
+      vscode.window.setStatusBarMessage(`VS解决方案: ${path.basename(file)}`, 3000);
+      if (config().get('autoRevealActiveFile', true)) setTimeout(() => revealActiveFile(provider, treeView, false), 0);
+    }
     catch (error) { vscode.window.showErrorMessage(`解析解决方案失败: ${error.message}`); }
   };
   context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.refresh', loadConfigured));
   context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.openSolution', loadConfigured));
   context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.selectSolution', async () => {
     const selected = await vscode.window.showOpenDialog({ canSelectMany: false, filters: { 'Visual Studio Solution': ['sln'] }, openLabel: '打开解决方案' });
-    if (selected && selected[0]) { await provider.load(selected[0].fsPath); await config().update('solutionPath', path.relative(workspace.uri.fsPath, selected[0].fsPath), vscode.ConfigurationTarget.Workspace); }
+    if (selected && selected[0]) {
+      await provider.load(selected[0].fsPath);
+      diagnosticsProvider.refresh();
+      await config().update('solutionPath', path.relative(workspace.uri.fsPath, selected[0].fsPath), vscode.ConfigurationTarget.Workspace);
+      if (config().get('autoRevealActiveFile', true)) setTimeout(() => revealActiveFile(provider, treeView, false), 0);
+    }
   }));
   context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.createFile', async node => {
     try { await createCodeFile(provider, node); }
@@ -637,6 +791,15 @@ function activate(context) {
   safeCommand('uacsSolutionExplorer.addDirectoryToChat', node => addDirectoryToChat(node, false));
   safeCommand('uacsSolutionExplorer.addDirectoryToNewChat', node => addDirectoryToChat(node, true));
   safeCommand('uacsSolutionExplorer.search', () => searchSolutionFiles(provider));
+  safeCommand('uacsSolutionExplorer.revealActiveFile', () => revealActiveFile(provider, treeView, true));
+  safeCommand('uacsSolutionExplorer.build', node => runConfiguredBuild(provider, node, false));
+  safeCommand('uacsSolutionExplorer.clean', node => runConfiguredBuild(provider, node, true));
+  safeCommand('uacsSolutionExplorer.setStartupProject', () => setStartupProject(provider));
+  safeCommand('uacsSolutionExplorer.refreshDiagnostics', () => diagnosticsProvider.refresh());
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => {
+    if (config().get('autoRevealActiveFile', true)) revealActiveFile(provider, treeView, false);
+  }));
+  context.subscriptions.push(vscode.languages.onDidChangeDiagnostics(() => diagnosticsProvider.refresh()));
   if (workspace) {
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.{sln,vcxproj,filters}');
     watcher.onDidChange(loadConfigured, null, context.subscriptions); watcher.onDidCreate(loadConfigured, null, context.subscriptions); watcher.onDidDelete(loadConfigured, null, context.subscriptions); context.subscriptions.push(watcher);

@@ -25,6 +25,11 @@
           "id": "uacs-solution-tree",
           "name": "解决方案资源管理器",
           "contextualTitle": "UACS VS Solution Explorer"
+        },
+        {
+          "id": "uacs-diagnostics-tree",
+          "name": "错误与警告",
+          "contextualTitle": "UACS Diagnostics"
         }
       ]
     },
@@ -33,6 +38,11 @@
       { "command": "uacsSolutionExplorer.refresh", "title": "UACS: 刷新解决方案树" },
       { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件" },
       { "command": "uacsSolutionExplorer.search", "title": "搜索解决方案文件...", "icon": "$(search)" },
+      { "command": "uacsSolutionExplorer.revealActiveFile", "title": "定位当前文件", "icon": "$(locate)" },
+      { "command": "uacsSolutionExplorer.build", "title": "构建项目", "icon": "$(run-all)" },
+      { "command": "uacsSolutionExplorer.clean", "title": "清理项目", "icon": "$(clear-all)" },
+      { "command": "uacsSolutionExplorer.setStartupProject", "title": "设置启动项目", "icon": "$(star-full)" },
+      { "command": "uacsSolutionExplorer.refreshDiagnostics", "title": "刷新错误与警告", "icon": "$(refresh)" },
       { "command": "uacsSolutionExplorer.createFile", "title": "UACS: 新建代码文件" },
       { "command": "uacsSolutionExplorer.addExistingFile", "title": "导入现有代码文件..." },
       { "command": "uacsSolutionExplorer.newFile", "title": "新建文件...", "icon": "$(new-file)" },
@@ -62,6 +72,26 @@
           "type": "boolean",
           "default": true,
           "description": "找不到指定解决方案时，自动搜索工作区中的第一个 .sln。"
+        },
+        "uacsSolutionExplorer.autoRevealActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开代码文件时，自动在解决方案树中定位并选中它。"
+        },
+        "uacsSolutionExplorer.startupProject": {
+          "type": "string",
+          "default": "",
+          "description": "启动项目名称，使用“设置启动项目”命令修改。"
+        },
+        "uacsSolutionExplorer.buildCommand": {
+          "type": "string",
+          "default": "",
+          "description": "构建命令。支持 ${solution}、${project}、${projectName} 占位符。"
+        },
+        "uacsSolutionExplorer.cleanCommand": {
+          "type": "string",
+          "default": "",
+          "description": "清理命令。支持 ${solution}、${project}、${projectName} 占位符。"
         }
       }
     },
@@ -91,6 +121,31 @@
           "command": "uacsSolutionExplorer.search",
           "when": "view == uacs-solution-tree",
           "group": "navigation@4"
+        },
+        {
+          "command": "uacsSolutionExplorer.revealActiveFile",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@5"
+        },
+        {
+          "command": "uacsSolutionExplorer.setStartupProject",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@6"
+        },
+        {
+          "command": "uacsSolutionExplorer.build",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@7"
+        },
+        {
+          "command": "uacsSolutionExplorer.clean",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@8"
+        },
+        {
+          "command": "uacsSolutionExplorer.refreshDiagnostics",
+          "when": "view == uacs-diagnostics-tree",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -174,6 +229,21 @@
           "command": "uacsSolutionExplorer.delete",
           "when": "view == uacs-solution-tree && (viewItem == filter || viewItem == file)",
           "group": "7_file@2"
+        },
+        {
+          "command": "uacsSolutionExplorer.setStartupProject",
+          "when": "view == uacs-solution-tree && viewItem == project",
+          "group": "8_project@1"
+        },
+        {
+          "command": "uacsSolutionExplorer.build",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project)",
+          "group": "8_project@2"
+        },
+        {
+          "command": "uacsSolutionExplorer.clean",
+          "when": "view == uacs-solution-tree && (viewItem == solution || viewItem == solutionFolder || viewItem == project)",
+          "group": "8_project@3"
         }
       ]
     }
