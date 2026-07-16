@@ -68,11 +68,13 @@ class SolutionProvider {
     }
     const make = (entries, parentPath = '') => [...entries.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN')).map(([label, entry]) => {
       const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: new vscode.ThemeIcon('folder'), children: [] };
+      node.projectInfo = projectInfo;
+      node.filterPath = parentPath ? `${parentPath}\\${label}` : label;
       const files = entry.items.map(item => {
         const relative = item.include; return new SolutionNode(path.basename(relative), 'file', path.normalize(path.join(project.dir, relative)));
       });
       // Keep folders before files at every level, matching Visual Studio.
-      node.children.push(...make(entry.children, parentPath ? `${parentPath}\\${label}` : label));
+      node.children.push(...make(entry.children, node.filterPath));
       node.children.push(...files);
       node.collapsibleState = node.children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
       return node;
@@ -170,10 +172,33 @@ function projectChoices(provider) {
   }));
 }
 
+function filterFolderRelative(filterPath) {
+  const parts = String(filterPath || '').split(/[\\/]/).filter(Boolean);
+  const defaultGroups = new Set(['源文件', '头文件', '资源文件', '其他文件']);
+  if (parts.length && defaultGroups.has(parts[0])) parts.shift();
+  return parts.join('/');
+}
+
 async function chooseProject(provider, node) {
   if (node && node.kind === 'project' && node.projectInfo) return node.projectInfo;
   const picked = await vscode.window.showQuickPick(projectChoices(provider), { placeHolder: '选择要修改的 C++ 项目' });
   return picked && picked.project;
+}
+
+async function chooseTarget(provider, node) {
+  const projectInfo = await chooseProject(provider, node);
+  if (!projectInfo) return null;
+  return { projectInfo, filterPath: node && node.kind === 'filter' ? node.filterPath : '' };
+}
+
+function projectTargetFolder(projectFile, filterPath) {
+  const projectDir = path.dirname(projectFile);
+  const relative = filterFolderRelative(filterPath);
+  const absolute = path.resolve(projectDir, relative || '.');
+  if (absolute !== projectDir && !absolute.startsWith(`${projectDir}${path.sep}`)) {
+    throw new Error('目标文件夹必须位于项目目录内。');
+  }
+  return { absolute, relative };
 }
 
 function uniqueDestination(directory, name) {
@@ -192,8 +217,9 @@ async function reloadProvider(provider) {
 }
 
 async function createCodeFile(provider, node) {
-  const projectInfo = await chooseProject(provider, node);
-  if (!projectInfo) return;
+  const target = await chooseTarget(provider, node);
+  if (!target) return;
+  const { projectInfo } = target;
   const typeChoice = await vscode.window.showQuickPick([
     { label: 'C++ 源文件 (.cpp)', extension: '.cpp', itemType: 'ClCompile' },
     { label: 'C++ 头文件 (.h)', extension: '.h', itemType: 'ClInclude' },
@@ -213,23 +239,23 @@ async function createCodeFile(provider, node) {
   const relative = safeRelativePath(name);
   if (!relative) return;
   const projectFile = projectFilePath(provider.solutionPath, projectInfo);
-  const target = path.resolve(path.dirname(projectFile), relative);
-  if (target !== path.dirname(projectFile) && !target.startsWith(`${path.dirname(projectFile)}${path.sep}`)) {
-    return vscode.window.showErrorMessage('新文件必须位于项目目录内。');
-  }
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  if (fs.existsSync(target)) return vscode.window.showErrorMessage(`文件已存在：${relative}`);
-  fs.writeFileSync(target, '', 'utf8');
-  appendProjectItem(projectFile, typeChoice.itemType, relative);
-  appendFilterItem(projectFile, typeChoice.itemType, relative, defaultFilterForType(typeChoice.itemType));
+  const folder = projectTargetFolder(projectFile, target.filterPath);
+  const include = path.posix.join(folder.relative || '.', relative).replace(/^\.\//, '');
+  const targetFile = path.join(folder.absolute, relative);
+  fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+  if (fs.existsSync(targetFile)) return vscode.window.showErrorMessage(`文件已存在：${include}`);
+  fs.writeFileSync(targetFile, '', 'utf8');
+  appendProjectItem(projectFile, typeChoice.itemType, include);
+  appendFilterItem(projectFile, typeChoice.itemType, include, target.filterPath || defaultFilterForType(typeChoice.itemType));
   await reloadProvider(provider);
-  await vscode.window.showTextDocument(vscode.Uri.file(target));
-  vscode.window.setStatusBarMessage(`已新建并加入 ${projectInfo.name}: ${relative}`, 4000);
+  await vscode.window.showTextDocument(vscode.Uri.file(targetFile));
+  vscode.window.setStatusBarMessage(`已新建并加入 ${projectInfo.name}: ${include}`, 4000);
 }
 
 async function importCodeFiles(provider, node) {
-  const projectInfo = await chooseProject(provider, node);
-  if (!projectInfo) return;
+  const target = await chooseTarget(provider, node);
+  if (!target) return;
+  const { projectInfo } = target;
   const selected = await vscode.window.showOpenDialog({
     canSelectMany: true,
     openLabel: '导入到项目',
@@ -238,22 +264,21 @@ async function importCodeFiles(provider, node) {
   if (!selected || !selected.length) return;
   const projectFile = projectFilePath(provider.solutionPath, projectInfo);
   const projectDir = path.dirname(projectFile);
+  const folder = projectTargetFolder(projectFile, target.filterPath);
+  fs.mkdirSync(folder.absolute, { recursive: true });
   let added = 0;
   for (const uri of selected) {
     const source = uri.fsPath;
-    const sourceRelative = path.relative(projectDir, source);
-    let target = source;
-    let relative = safeRelativePath(sourceRelative);
-    if (!relative || relative === '.') {
-      target = uniqueDestination(projectDir, path.basename(source));
-      relative = path.relative(projectDir, target).replace(/\\/g, '/');
-      fs.copyFileSync(source, target);
-    } else if (path.resolve(source) !== path.resolve(projectDir, relative)) {
-      target = path.resolve(projectDir, relative);
+    const sourceInTarget = path.resolve(source) === folder.absolute || path.resolve(source).startsWith(`${folder.absolute}${path.sep}`);
+    let targetFile = source;
+    if (!sourceInTarget) {
+      targetFile = uniqueDestination(folder.absolute, path.basename(source));
+      fs.copyFileSync(source, targetFile);
     }
-    const type = itemTypeForFile(target);
+    const relative = path.relative(projectDir, targetFile).replace(/\\/g, '/');
+    const type = itemTypeForFile(targetFile);
     if (appendProjectItem(projectFile, type, relative)) {
-      appendFilterItem(projectFile, type, relative, defaultFilterForType(type));
+      appendFilterItem(projectFile, type, relative, target.filterPath || defaultFilterForType(type));
       added += 1;
     }
   }

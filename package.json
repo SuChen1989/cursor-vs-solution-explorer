@@ -83,6 +83,16 @@
           "command": "uacsSolutionExplorer.addExistingFile",
           "when": "view == uacs-solution-tree && viewItem == project",
           "group": "uacs@2"
+        },
+        {
+          "command": "uacsSolutionExplorer.createFile",
+          "when": "view == uacs-solution-tree && viewItem == filter",
+          "group": "uacs@1"
+        },
+        {
+          "command": "uacsSolutionExplorer.addExistingFile",
+          "when": "view == uacs-solution-tree && viewItem == filter",
+          "group": "uacs@2"
         }
       ]
     }
