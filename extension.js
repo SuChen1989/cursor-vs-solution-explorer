@@ -3,6 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const { parseSolution, parseProject, buildTree, displayGroup, readText } = require('./src/model');
 
+function assetIcon(name) {
+  const assets = path.join(__dirname, 'assets');
+  return {
+    light: vscode.Uri.file(path.join(assets, `${name}-light.svg`)),
+    dark: vscode.Uri.file(path.join(assets, `${name}-dark.svg`))
+  };
+}
+
 function fileIconForPath(file) {
   const ext = path.extname(file).toLowerCase();
   if (['.h', '.hh', '.hpp', '.hxx', '.inl'].includes(ext)) return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.blue'));
@@ -28,7 +36,7 @@ class SolutionNode {
       this.iconPath = new vscode.ThemeIcon('project', new vscode.ThemeColor('charts.orange'));
       this.tooltip = resource;
     } else if (kind === 'filter' || kind === 'group' || kind === 'solutionFolder') {
-      this.iconPath = new vscode.ThemeIcon(kind === 'solutionFolder' ? 'folder-library' : 'folder', new vscode.ThemeColor('charts.purple'));
+      this.iconPath = assetIcon(kind === 'solutionFolder' ? 'folder-solution' : 'folder-filter');
       this.tooltip = resource || label;
     }
   }
@@ -117,7 +125,7 @@ class SolutionProvider {
       if (parent) parent.items.push(item);
     }
     const make = (entries, parentPath = '', parentFilter) => [...entries.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN')).map(([label, entry]) => {
-      const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: new vscode.ThemeIcon('folder', new vscode.ThemeColor('charts.purple')), children: [] };
+      const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: assetIcon('folder-filter'), children: [] };
       this.parents.set(node, parentFilter || parentNode);
       node.projectInfo = projectInfo;
       node.filterPath = parentPath ? `${parentPath}\\${label}` : label;
