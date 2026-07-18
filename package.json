@@ -33,18 +33,28 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "uacs-solution-tree",
+        "contents": "尚未加载解决方案。 [选择解决方案](command:uacsSolutionExplorer.selectSolution) 或 [刷新](command:uacsSolutionExplorer.refresh)。"
+      },
+      {
+        "view": "uacs-diagnostics-tree",
+        "contents": "当前解决方案目录没有错误或警告。"
+      }
+    ],
     "commands": [
-      { "command": "uacsSolutionExplorer.openSolution", "title": "UACS: 打开解决方案" },
-      { "command": "uacsSolutionExplorer.refresh", "title": "UACS: 刷新解决方案树" },
-      { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件" },
+      { "command": "uacsSolutionExplorer.openSolution", "title": "UACS: 打开解决方案", "icon": "$(folder-opened)" },
+      { "command": "uacsSolutionExplorer.refresh", "title": "UACS: 刷新解决方案树", "icon": "$(refresh)" },
+      { "command": "uacsSolutionExplorer.selectSolution", "title": "UACS: 选择解决方案文件", "icon": "$(list-tree)" },
       { "command": "uacsSolutionExplorer.search", "title": "搜索解决方案文件...", "icon": "$(search)" },
       { "command": "uacsSolutionExplorer.revealActiveFile", "title": "定位当前文件", "icon": "$(locate)" },
       { "command": "uacsSolutionExplorer.build", "title": "构建项目", "icon": "$(run-all)" },
       { "command": "uacsSolutionExplorer.clean", "title": "清理项目", "icon": "$(clear-all)" },
       { "command": "uacsSolutionExplorer.setStartupProject", "title": "设置启动项目", "icon": "$(star-full)" },
       { "command": "uacsSolutionExplorer.refreshDiagnostics", "title": "刷新错误与警告", "icon": "$(refresh)" },
-      { "command": "uacsSolutionExplorer.createFile", "title": "UACS: 新建代码文件" },
-      { "command": "uacsSolutionExplorer.addExistingFile", "title": "导入现有代码文件..." },
+      { "command": "uacsSolutionExplorer.createFile", "title": "UACS: 新建代码文件", "icon": "$(new-file)" },
+      { "command": "uacsSolutionExplorer.addExistingFile", "title": "导入现有代码文件...", "icon": "$(file-add)" },
       { "command": "uacsSolutionExplorer.newFile", "title": "新建文件...", "icon": "$(new-file)" },
       { "command": "uacsSolutionExplorer.newFolder", "title": "新建文件夹...", "icon": "$(new-folder)" },
       { "command": "uacsSolutionExplorer.revealInFinder", "title": "Reveal in Finder", "icon": "$(folder-opened)" },
@@ -108,7 +118,7 @@
           "group": "navigation"
         },
         {
-          "command": "uacsSolutionExplorer.createFile",
+          "command": "uacsSolutionExplorer.newFile",
           "when": "view == uacs-solution-tree",
           "group": "navigation@2"
         },

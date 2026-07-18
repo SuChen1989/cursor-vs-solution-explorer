@@ -3,22 +3,33 @@ const fs = require('fs');
 const path = require('path');
 const { parseSolution, parseProject, buildTree, displayGroup, readText } = require('./src/model');
 
+function fileIconForPath(file) {
+  const ext = path.extname(file).toLowerCase();
+  if (['.h', '.hh', '.hpp', '.hxx', '.inl'].includes(ext)) return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.blue'));
+  if (['.cpp', '.cc', '.cxx', '.c', '.mm'].includes(ext)) return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('charts.green'));
+  if (ext === '.rc') return new vscode.ThemeIcon('symbol-color', new vscode.ThemeColor('charts.yellow'));
+  if (['.json', '.xml', '.yaml', '.yml'].includes(ext)) return new vscode.ThemeIcon('bracket', new vscode.ThemeColor('charts.orange'));
+  return new vscode.ThemeIcon('file', new vscode.ThemeColor('charts.foreground'));
+}
+
 class SolutionNode {
   constructor(label, kind, resource, collapsible = vscode.TreeItemCollapsibleState.None) {
     this.label = label; this.kind = kind; this.resource = resource; this.collapsibleState = collapsible;
     this.contextValue = kind;
     if (kind === 'file') {
       this.command = { command: 'vscode.open', title: '打开文件', arguments: [vscode.Uri.file(resource)] };
-      this.iconPath = new vscode.ThemeIcon('file-code', new vscode.ThemeColor('charts.green'));
+      this.iconPath = fileIconForPath(resource);
       this.tooltip = resource;
     } else if (kind === 'solution') {
       this.iconPath = new vscode.ThemeIcon('layers', new vscode.ThemeColor('charts.blue'));
-      this.description = 'Visual Studio Solution';
+      this.description = path.basename(resource);
+      this.tooltip = resource;
     } else if (kind === 'project') {
       this.iconPath = new vscode.ThemeIcon('project', new vscode.ThemeColor('charts.orange'));
-      this.description = 'C++ project';
+      this.tooltip = resource;
     } else if (kind === 'filter' || kind === 'group' || kind === 'solutionFolder') {
       this.iconPath = new vscode.ThemeIcon(kind === 'solutionFolder' ? 'folder-library' : 'folder', new vscode.ThemeColor('charts.purple'));
+      this.tooltip = resource || label;
     }
   }
 }
@@ -106,11 +117,12 @@ class SolutionProvider {
       if (parent) parent.items.push(item);
     }
     const make = (entries, parentPath = '', parentFilter) => [...entries.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN')).map(([label, entry]) => {
-      const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: new vscode.ThemeIcon('folder'), children: [] };
+      const node = { label, kind: 'filter', contextValue: 'filter', collapsibleState: vscode.TreeItemCollapsibleState.Collapsed, iconPath: new vscode.ThemeIcon('folder', new vscode.ThemeColor('charts.purple')), children: [] };
       this.parents.set(node, parentFilter || parentNode);
       node.projectInfo = projectInfo;
       node.filterPath = parentPath ? `${parentPath}\\${label}` : label;
       node.resource = path.resolve(project.dir, filterFolderRelative(node.filterPath));
+      node.tooltip = `${projectInfo.name} · ${node.filterPath}`;
       const files = entry.items.map(item => {
         const relative = item.include;
         const fileNode = new SolutionNode(path.basename(relative), 'file', path.normalize(path.join(project.dir, relative)));
@@ -146,6 +158,16 @@ class DiagnosticsProvider {
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
   }
   refresh() { this._onDidChangeTreeData.fire(); }
+  count() {
+    const solution = this.solutionProvider.solution;
+    if (!solution) return 0;
+    const root = path.dirname(solution.file);
+    let count = 0;
+    for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+      if (uri.scheme === 'file' && isPathUnder(uri.fsPath, root)) count += diagnostics.filter(diagnostic => diagnostic.severity !== vscode.DiagnosticSeverity.Hint).length;
+    }
+    return count;
+  }
   getTreeItem(node) { return node; }
   getChildren(node) {
     if (node) return node.children || [];
@@ -160,6 +182,7 @@ class DiagnosticsProvider {
       const fileNode = new DiagnosticsNode(path.basename(uri.fsPath), 'file', uri.fsPath, vscode.TreeItemCollapsibleState.Collapsed);
       fileNode.description = `${relevant.length} 条`;
       fileNode.tooltip = uri.fsPath;
+      fileNode.iconPath = fileIconForPath(uri.fsPath);
       fileNode.command = { command: 'vscode.open', title: '打开文件', arguments: [uri] };
       fileNode.children = relevant.sort((a, b) => a.range.start.line - b.range.start.line).map(diagnostic => {
         const severity = diagnostic.severity === vscode.DiagnosticSeverity.Error ? 'error' : diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 'warning' : 'info';
@@ -568,6 +591,12 @@ function projectNodeContext(provider, node) {
 }
 
 async function newFile(provider, node) {
+  if (!node) {
+    const projectInfo = await chooseProject(provider, null);
+    if (!projectInfo) return;
+    const projectFile = projectFilePath(provider.solutionPath, projectInfo);
+    node = { kind: 'project', projectInfo, resource: path.dirname(projectFile) };
+  }
   const directory = nodeDirectory(node);
   if (!directory) return;
   const name = await vscode.window.showInputBox({
@@ -739,6 +768,12 @@ function activate(context) {
   const diagnosticsProvider = new DiagnosticsProvider(provider);
   const diagnosticsView = vscode.window.createTreeView('uacs-diagnostics-tree', { treeDataProvider: diagnosticsProvider, showCollapseAll: true });
   context.subscriptions.push(diagnosticsView);
+  const updateDiagnosticsBadge = () => {
+    const count = diagnosticsProvider.count();
+    diagnosticsView.badge = count ? { value: count, tooltip: `${count} 个错误或警告` } : undefined;
+  };
+  context.subscriptions.push(diagnosticsProvider.onDidChangeTreeData(() => updateDiagnosticsBadge()));
+  updateDiagnosticsBadge();
   const workspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   const config = () => vscode.workspace.getConfiguration('uacsSolutionExplorer');
   const loadConfigured = async () => {
