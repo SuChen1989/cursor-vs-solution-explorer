@@ -53,6 +53,10 @@
       { "command": "uacsSolutionExplorer.clean", "title": "清理项目", "icon": "$(clear-all)" },
       { "command": "uacsSolutionExplorer.setStartupProject", "title": "设置启动项目", "icon": "$(star-full)" },
       { "command": "uacsSolutionExplorer.refreshDiagnostics", "title": "刷新错误与警告", "icon": "$(refresh)" },
+      { "command": "uacsSolutionExplorer.navigateBack", "title": "返回上一个代码位置", "icon": "$(arrow-left)" },
+      { "command": "uacsSolutionExplorer.navigateForward", "title": "前进到下一个代码位置", "icon": "$(arrow-right)" },
+      { "command": "uacsSolutionExplorer.addComment", "title": "注释选中代码", "icon": "$(comment)" },
+      { "command": "uacsSolutionExplorer.removeComment", "title": "取消选中代码注释", "icon": "$(remove)" },
       { "command": "uacsSolutionExplorer.createFile", "title": "UACS: 新建代码文件", "icon": "$(new-file)" },
       { "command": "uacsSolutionExplorer.addExistingFile", "title": "导入现有代码文件...", "icon": "$(file-add)" },
       { "command": "uacsSolutionExplorer.newFile", "title": "新建文件...", "icon": "$(new-file)" },
@@ -111,6 +115,26 @@
           "command": "uacsSolutionExplorer.refresh",
           "when": "view == uacs-solution-tree",
           "group": "navigation"
+        },
+        {
+          "command": "uacsSolutionExplorer.navigateBack",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "uacsSolutionExplorer.navigateForward",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "uacsSolutionExplorer.addComment",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "uacsSolutionExplorer.removeComment",
+          "when": "view == uacs-solution-tree",
+          "group": "navigation@4"
         },
         {
           "command": "uacsSolutionExplorer.selectSolution",

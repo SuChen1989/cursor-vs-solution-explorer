@@ -768,6 +768,14 @@ async function addDirectoryToChat(node, newSession) {
   vscode.window.showInformationMessage('当前版本未提供 Cursor Chat 命令，目录路径已复制到剪贴板。');
 }
 
+async function runEditorCommand(command, label) {
+  if (!vscode.window.activeTextEditor) {
+    vscode.window.showInformationMessage(`请先打开代码文件，再使用“${label}”。`);
+    return;
+  }
+  await vscode.commands.executeCommand(command);
+}
+
 function activate(context) {
   const provider = new SolutionProvider();
   vscode.commands.executeCommand('setContext', 'uacsSolutionExplorer.canPaste', false);
@@ -839,6 +847,10 @@ function activate(context) {
   safeCommand('uacsSolutionExplorer.clean', node => runConfiguredBuild(provider, node, true));
   safeCommand('uacsSolutionExplorer.setStartupProject', () => setStartupProject(provider));
   safeCommand('uacsSolutionExplorer.refreshDiagnostics', () => diagnosticsProvider.refresh());
+  context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.navigateBack', () => vscode.commands.executeCommand('workbench.action.navigateBack')));
+  context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.navigateForward', () => vscode.commands.executeCommand('workbench.action.navigateForward')));
+  context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.addComment', () => runEditorCommand('editor.action.addCommentLine', '注释选中代码')));
+  context.subscriptions.push(vscode.commands.registerCommand('uacsSolutionExplorer.removeComment', () => runEditorCommand('editor.action.removeCommentLine', '取消选中代码注释')));
   context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => {
     if (config().get('autoRevealActiveFile', true)) revealActiveFile(provider, treeView, false);
   }));
